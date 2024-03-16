@@ -6,8 +6,8 @@ This is a preset for creating Figma plugins using React and esbuild. The starter
 
 ### Prerequisites
 
-- [Node.js](https://nodejs.org/) (v18 or higher)
-- [Pnpm](https://pnpm.io/) (v8.6.3 or higher)
+- [Node.js](https://nodejs.org/) (v20 or higher)
+- [Pnpm](https://pnpm.io/) (v8.15 or higher)
 
 ### Installation
 
