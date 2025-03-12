@@ -1,3 +1,11 @@
+// Import Material-UI icons
+import AnalyticsIcon from "@mui/icons-material/Analytics";
+import CloseIcon from "@mui/icons-material/Close";
+import ContentCopyIcon from "@mui/icons-material/ContentCopy";
+import EditIcon from "@mui/icons-material/Edit";
+import ImageIcon from "@mui/icons-material/Image";
+import KeyIcon from "@mui/icons-material/Key";
+import SaveIcon from "@mui/icons-material/Save";
 import {
   Box,
   Button,
@@ -7,6 +15,7 @@ import {
   List,
   ListItem,
   ListItemText,
+  Modal,
   Paper,
   Snackbar,
   Stack,
@@ -19,14 +28,6 @@ import {
 } from "@mui/material";
 import MuiAlert from "@mui/material/Alert";
 import { useCallback, useEffect, useState } from "react";
-
-// Import Material-UI icons
-import AnalyticsIcon from "@mui/icons-material/Analytics";
-import ContentCopyIcon from "@mui/icons-material/ContentCopy";
-import EditIcon from "@mui/icons-material/Edit";
-import ImageIcon from "@mui/icons-material/Image";
-import KeyIcon from "@mui/icons-material/Key";
-import SaveIcon from "@mui/icons-material/Save";
 
 // Define our metadata interface matching the plugin code
 interface DesignMetadata {
@@ -118,8 +119,9 @@ function App() {
   } | null>(null);
   const [isEditing, setIsEditing] = useState(false);
   const [apiKey, setApiKey] = useState<string>("");
-  const [showApiKeyInput, setShowApiKeyInput] = useState(false);
+  const [apiKeyModalOpen, setApiKeyModalOpen] = useState(false);
   const [savingApiKey, setSavingApiKey] = useState(false);
+  const [jsonView, setJsonView] = useState<string>("{}");
 
   // State for the metadata
   const [metadata, setMetadata] = useState<DesignMetadata>({
@@ -138,6 +140,11 @@ function App() {
   // State for the OpenAI enhanced metadata
   const [aiEnhancedMetadata, setAiEnhancedMetadata] =
     useState<DesignMetadata | null>(null);
+
+  // Update JSON view whenever metadata changes
+  useEffect(() => {
+    setJsonView(JSON.stringify(metadata, null, 2));
+  }, [metadata]);
 
   // Function to save API key
   const saveApiKey = useCallback(() => {
@@ -193,36 +200,38 @@ function App() {
   }, []);
 
   // Function to handle the OpenAI analysis
-  const performOpenAIAnalysis = useCallback(async () => {
-    if (!imagePreview) {
-      setNotification({
-        message: "No image available for analysis",
-        type: "error",
-      });
-      return;
-    }
+  const performOpenAIAnalysis = useCallback(
+    async (imageData?: string) => {
+      // Use the passed image data if available, otherwise use the state
+      const imageToAnalyze =
+        imageData || (imagePreview ? imagePreview.split(",")[1] : null);
 
-    if (!apiKey) {
-      setShowApiKeyInput(true);
-      setNotification({
-        message: "Please enter your OpenAI API key",
-        type: "info",
-      });
-      return;
-    }
+      if (!imageToAnalyze) {
+        setNotification({
+          message: "No image available for analysis",
+          type: "error",
+        });
+        return;
+      }
 
-    try {
-      setIsAnalyzing(true);
-      setNotification({
-        message: "Analyzing with OpenAI...",
-        type: "info",
-      });
+      if (!apiKey) {
+        setApiKeyModalOpen(true);
+        setNotification({
+          message: "Please enter your OpenAI API key",
+          type: "info",
+        });
+        return;
+      }
 
-      // Extract the base64 image data
-      const imageData = imagePreview.split(",")[1];
+      try {
+        setIsAnalyzing(true);
+        setNotification({
+          message: "Analyzing with OpenAI...",
+          type: "info",
+        });
 
-      // Create the prompt for OpenAI
-      const prompt = `Analyze this design image and extract the following metadata:
+        // Create the prompt for OpenAI
+        const prompt = `Analyze this design image and extract the following metadata:
       1. Main headline text
       2. Subheadline text (if present)
       3. Body text content
@@ -249,93 +258,97 @@ function App() {
         "objects": array of strings
       }`;
 
-      // Call OpenAI API (GPT-4 Vision)
-      const response = await fetch(
-        "https://api.openai.com/v1/chat/completions",
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${apiKey}`,
-          },
-          body: JSON.stringify({
-            model: "gpt-4o-mini", // Using GPT-4 Vision for image analysis
-            messages: [
-              {
-                role: "user",
-                content: [
-                  { type: "text", text: prompt },
-                  {
-                    type: "image_url",
-                    image_url: {
-                      url: `data:image/png;base64,${imageData}`,
-                      detail: "high",
+        // Call OpenAI API (GPT-4 Vision)
+        const response = await fetch(
+          "https://api.openai.com/v1/chat/completions",
+          {
+            method: "POST",
+            headers: {
+              "Content-Type": "application/json",
+              Authorization: `Bearer ${apiKey}`,
+            },
+            body: JSON.stringify({
+              model: "gpt-4o-mini", // Using GPT-4 Vision for image analysis
+              messages: [
+                {
+                  role: "user",
+                  content: [
+                    { type: "text", text: prompt },
+                    {
+                      type: "image_url",
+                      image_url: {
+                        url: `data:image/png;base64,${imageToAnalyze}`,
+                        detail: "high",
+                      },
                     },
-                  },
-                ],
-              },
-            ],
-            max_tokens: 1000,
-          }),
-        },
-      );
-
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(
-          errorData.error?.message || "OpenAI API request failed",
+                  ],
+                },
+              ],
+              max_tokens: 1000,
+            }),
+          },
         );
+
+        if (!response.ok) {
+          const errorData = await response.json();
+          throw new Error(
+            errorData.error?.message || "OpenAI API request failed",
+          );
+        }
+
+        const data = await response.json();
+        const content = data.choices[0]?.message?.content;
+
+        if (!content) {
+          throw new Error("No content returned from OpenAI");
+        }
+
+        // Extract the JSON from the response
+        const jsonMatch =
+          content.match(/```json\n([\s\S]*?)\n```/) ||
+          content.match(/{[\s\S]*?}/);
+        const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
+
+        // Parse the JSON response
+        const aiResults = JSON.parse(
+          jsonString.replace(/^```json\n|```$/g, ""),
+        );
+
+        // Ensure the response has all required fields
+        const enhancedMetadata: DesignMetadata = {
+          headline: aiResults.headline || metadata.headline,
+          subheadline: aiResults.subheadline || metadata.subheadline,
+          body_text: aiResults.body_text || metadata.body_text,
+          call_to_action: aiResults.call_to_action || metadata.call_to_action,
+          disclaimer: aiResults.disclaimer || metadata.disclaimer,
+          keywords: aiResults.keywords || metadata.keywords,
+          locale: aiResults.locale || metadata.locale,
+          aspect_ratio: aiResults.aspect_ratio || metadata.aspect_ratio,
+          background_color:
+            aiResults.background_color || metadata.background_color,
+          objects: aiResults.objects || metadata.objects,
+        };
+
+        setAiEnhancedMetadata(enhancedMetadata);
+        setIsAnalyzing(false);
+        setSelectedTab(1); // Switch to results tab
+        setNotification({
+          message: "OpenAI analysis complete!",
+          type: "success",
+        });
+      } catch (error) {
+        console.error("Error with OpenAI analysis:", error);
+        setNotification({
+          message: `Error during OpenAI analysis: ${
+            error instanceof Error ? error.message : "Unknown error"
+          }`,
+          type: "error",
+        });
+        setIsAnalyzing(false);
       }
-
-      const data = await response.json();
-      const content = data.choices[0]?.message?.content;
-
-      if (!content) {
-        throw new Error("No content returned from OpenAI");
-      }
-
-      // Extract the JSON from the response
-      const jsonMatch =
-        content.match(/```json\n([\s\S]*?)\n```/) ||
-        content.match(/{[\s\S]*?}/);
-      const jsonString = jsonMatch ? jsonMatch[1] || jsonMatch[0] : content;
-
-      // Parse the JSON response
-      const aiResults = JSON.parse(jsonString.replace(/^```json\n|```$/g, ""));
-
-      // Ensure the response has all required fields
-      const enhancedMetadata: DesignMetadata = {
-        headline: aiResults.headline || metadata.headline,
-        subheadline: aiResults.subheadline || metadata.subheadline,
-        body_text: aiResults.body_text || metadata.body_text,
-        call_to_action: aiResults.call_to_action || metadata.call_to_action,
-        disclaimer: aiResults.disclaimer || metadata.disclaimer,
-        keywords: aiResults.keywords || metadata.keywords,
-        locale: aiResults.locale || metadata.locale,
-        aspect_ratio: aiResults.aspect_ratio || metadata.aspect_ratio,
-        background_color:
-          aiResults.background_color || metadata.background_color,
-        objects: aiResults.objects || metadata.objects,
-      };
-
-      setAiEnhancedMetadata(enhancedMetadata);
-      setIsAnalyzing(false);
-      setSelectedTab(1); // Switch to results tab
-      setNotification({
-        message: "OpenAI analysis complete!",
-        type: "success",
-      });
-    } catch (error) {
-      console.error("Error with OpenAI analysis:", error);
-      setNotification({
-        message: `Error during OpenAI analysis: ${
-          error instanceof Error ? error.message : "Unknown error"
-        }`,
-        type: "error",
-      });
-      setIsAnalyzing(false);
-    }
-  }, [imagePreview, metadata, apiKey]);
+    },
+    [imagePreview, metadata, apiKey],
+  );
 
   // Function to copy JSON to clipboard
   const copyToClipboard = useCallback(() => {
@@ -347,6 +360,16 @@ function App() {
     });
   }, [metadata, aiEnhancedMetadata]);
 
+  // Handle API key modal open
+  const handleOpenApiKeyModal = () => {
+    setApiKeyModalOpen(true);
+  };
+
+  // Handle API key modal close
+  const handleCloseApiKeyModal = () => {
+    setApiKeyModalOpen(false);
+  };
+
   // Handle messages from the plugin code
   useEffect(() => {
     window.onmessage = (event) => {
@@ -357,10 +380,19 @@ function App() {
         setMetadata(msg.metadata);
         setImagePreview(`data:image/png;base64,${msg.image}`);
         setIsAnalyzing(false);
-        setNotification({
-          message: "Design data extracted successfully!",
-          type: "success",
-        });
+        setJsonView(JSON.stringify(msg.metadata, null, 2));
+
+        // Automatically perform OpenAI analysis if API key is available
+        if (apiKey) {
+          // Use the image data directly instead of waiting for state update
+          performOpenAIAnalysis(msg.image);
+        } else {
+          setNotification({
+            message:
+              "Design data extracted successfully! Add an API key to enable AI analysis.",
+            type: "success",
+          });
+        }
       } else if (msg.type === "analysis-error") {
         setIsAnalyzing(false);
         setNotification({
@@ -372,11 +404,10 @@ function App() {
       } else if (msg.type === "api-key-loaded") {
         // Handle API key loaded from storage
         setApiKey(msg.apiKey);
-        setShowApiKeyInput(false);
       } else if (msg.type === "api-key-saved") {
         // Handle API key saved successfully
         setSavingApiKey(false);
-        setShowApiKeyInput(false);
+        setApiKeyModalOpen(false);
         setNotification({
           message: "API key saved successfully",
           type: "success",
@@ -390,81 +421,121 @@ function App() {
         });
       }
     };
-  }, []);
+  }, [apiKey, performOpenAIAnalysis]);
 
   // Handle updating metadata during editing
-  const handleUpdateMetadata = (field: keyof DesignMetadata, value: any) => {
-    setMetadata((prev: DesignMetadata) => ({
-      ...prev,
-      [field]: value,
-    }));
+  const handleUpdateMetadata = (
+    field: keyof DesignMetadata,
+    value: string | null,
+  ) => {
+    setMetadata((prev: DesignMetadata) => {
+      const updated = {
+        ...prev,
+        [field]: value,
+      };
+      // Update JSON view whenever metadata changes
+      setJsonView(JSON.stringify(updated, null, 2));
+      return updated;
+    });
   };
 
   // Handle updating array values (keywords and objects)
   const handleUpdateArray = (field: "keywords" | "objects", value: string) => {
     const values = value.split(",").map((item) => item.trim());
-    setMetadata((prev: DesignMetadata) => ({
-      ...prev,
-      [field]: values,
-    }));
+    setMetadata((prev: DesignMetadata) => {
+      const updated = {
+        ...prev,
+        [field]: values,
+      };
+      // Update JSON view whenever metadata changes
+      setJsonView(JSON.stringify(updated, null, 2));
+      return updated;
+    });
   };
 
-  // Render API key input section
-  const renderApiKeyInput = () => {
+  // Render API key modal
+  const renderApiKeyModal = () => {
     return (
-      <Paper
-        sx={{
-          p: 3,
-          mb: 3,
-          transition: "all 0.3s ease",
-          display: showApiKeyInput ? "block" : "none",
-        }}
+      <Modal
+        open={apiKeyModalOpen}
+        onClose={handleCloseApiKeyModal}
+        aria-labelledby="api-key-modal-title"
       >
-        <Typography
-          variant="h6"
-          gutterBottom
-          display="flex"
-          alignItems="center"
+        <Paper
+          sx={{
+            position: "absolute",
+            top: "50%",
+            left: "50%",
+            transform: "translate(-50%, -50%)",
+            width: "90%",
+            maxWidth: 400,
+            p: 4,
+            outline: "none",
+            borderRadius: 2,
+          }}
         >
-          <KeyIcon sx={{ mr: 1 }} /> OpenAI API Key
-        </Typography>
-        <Typography variant="body2" color="text.secondary" paragraph>
-          Enter your OpenAI API key to enable image analysis functionality. Your
-          key will be stored securely in Figma's client storage.
-        </Typography>
-        <TextField
-          label="OpenAI API Key"
-          value={apiKey}
-          onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
-            setApiKey(e.target.value)
-          }
-          fullWidth
-          margin="normal"
-          type="password"
-          placeholder="sk-..."
-          helperText="Your API key remains private and is stored locally in your Figma account."
-        />
-        <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
-          <Button
-            variant="outlined"
-            onClick={() => setShowApiKeyInput(false)}
-            disabled={savingApiKey}
+          <IconButton
+            aria-label="close"
+            onClick={handleCloseApiKeyModal}
+            sx={{
+              position: "absolute",
+              right: 8,
+              top: 8,
+            }}
           >
-            Cancel
-          </Button>
-          <Button
-            variant="contained"
-            color="primary"
-            onClick={saveApiKey}
-            disabled={!apiKey.trim() || savingApiKey}
-            startIcon={
-              savingApiKey ? <CircularProgress size={18} /> : <SaveIcon />
+            <CloseIcon />
+          </IconButton>
+
+          <Typography
+            id="api-key-modal-title"
+            variant="h6"
+            gutterBottom
+            display="flex"
+            alignItems="center"
+          >
+            <KeyIcon sx={{ mr: 1 }} /> OpenAI API Key
+          </Typography>
+
+          <Typography variant="body2" color="text.secondary" paragraph>
+            Enter your OpenAI API key to enable image analysis functionality.
+            Your key will be stored securely in Figma&apos;s client storage.
+          </Typography>
+
+          <TextField
+            label="OpenAI API Key"
+            value={apiKey}
+            onChange={(e: React.ChangeEvent<HTMLInputElement>) =>
+              setApiKey(e.target.value)
             }
-          >
-            {savingApiKey ? "Saving..." : "Save API Key"}
-          </Button>
-        </Stack>
-      </Paper>
+            fullWidth
+            margin="normal"
+            type="password"
+            placeholder="sk-..."
+            helperText="Your API key remains private and is stored locally in your Figma account."
+          />
+
+          <Stack direction="row" spacing={2} sx={{ mt: 2 }}>
+            <Button
+              variant="outlined"
+              onClick={handleCloseApiKeyModal}
+              disabled={savingApiKey}
+            >
+              Cancel
+            </Button>
+            <Button
+              variant="contained"
+              color="primary"
+              onClick={saveApiKey}
+              disabled={!apiKey.trim() || savingApiKey}
+              startIcon={
+                savingApiKey ? <CircularProgress size={18} /> : <SaveIcon />
+              }
+            >
+              {savingApiKey ? "Saving..." : "Save API Key"}
+            </Button>
+          </Stack>
+        </Paper>
+      </Modal>
     );
   };
 
@@ -594,7 +665,7 @@ function App() {
               variant="contained"
               color="secondary"
               startIcon={<AnalyticsIcon />}
-              onClick={performOpenAIAnalysis}
+              onClick={() => performOpenAIAnalysis()}
               disabled={isAnalyzing}
               fullWidth
             >
@@ -607,7 +678,7 @@ function App() {
           </Stack>
         );
 
-      case 1: // OpenAI Enhanced Results
+      case 1: // OpenAI Enhanced Results & JSON View
         return (
           <Stack spacing={3}>
             {aiEnhancedMetadata ? (
@@ -650,9 +721,39 @@ function App() {
                 </Button>
               </>
             ) : (
-              <Typography align="center" color="text.secondary">
-                No OpenAI analysis results yet. Please run the analysis first.
-              </Typography>
+              <>
+                <Typography variant="h6" gutterBottom>
+                  JSON View
+                </Typography>
+
+                <Paper sx={{ p: 3, position: "relative" }}>
+                  <IconButton
+                    sx={{ position: "absolute", top: 8, right: 8 }}
+                    onClick={copyToClipboard}
+                  >
+                    <ContentCopyIcon />
+                  </IconButton>
+
+                  <Typography
+                    component="pre"
+                    sx={{
+                      backgroundColor: "rgba(0, 0, 0, 0.03)",
+                      p: 2,
+                      borderRadius: 1,
+                      overflow: "auto",
+                      fontSize: "0.875rem",
+                      maxHeight: "400px",
+                    }}
+                  >
+                    {jsonView}
+                  </Typography>
+                </Paper>
+
+                <Typography align="center" color="text.secondary">
+                  No OpenAI analysis results yet. Please run the analysis or
+                  edit fields manually.
+                </Typography>
+              </>
             )}
           </Stack>
         );
@@ -672,18 +773,18 @@ function App() {
       >
         <Container maxWidth="sm" sx={{ py: 3 }}>
           <Stack spacing={3}>
-            <Typography
-              variant="h4"
-              sx={{
-                color: "primary.main",
-                textAlign: "center",
-                position: "relative",
-              }}
+            <Button
+              variant="contained"
+              color="primary"
+              startIcon={<ImageIcon />}
+              onClick={startAnalysis}
+              disabled={isAnalyzing || !apiKey}
+              fullWidth
+              size="large"
+              sx={{ py: 1.5 }}
             >
-              Design Analyzer
-            </Typography>
-
-            {renderApiKeyInput()}
+              Select New Frame
+            </Button>
 
             <Paper elevation={0} sx={{ borderRadius: 2, overflow: "hidden" }}>
               <Tabs
@@ -715,29 +816,19 @@ function App() {
                 Close
               </Button>
 
-              <Stack direction="row" spacing={1}>
-                <Button
-                  variant="outlined"
-                  color="secondary"
-                  startIcon={<KeyIcon />}
-                  onClick={() => setShowApiKeyInput(!showApiKeyInput)}
-                >
-                  API Key
-                </Button>
-
-                <Button
-                  variant="contained"
-                  color="primary"
-                  startIcon={<ImageIcon />}
-                  onClick={startAnalysis}
-                  disabled={isAnalyzing}
-                >
-                  Select New Frame
-                </Button>
-              </Stack>
+              <Button
+                variant="outlined"
+                color="secondary"
+                startIcon={<KeyIcon />}
+                onClick={handleOpenApiKeyModal}
+              >
+                API Key
+              </Button>
             </Stack>
           </Stack>
         </Container>
+
+        {renderApiKeyModal()}
 
         {notification && (
           <Snackbar

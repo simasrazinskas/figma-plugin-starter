@@ -18,5 +18,5 @@ render(
     <GlobalStyles styles={globalStyles} />
     <App />
   </ThemeProvider>,
-  document.getElementById("root")
+  document.getElementById("root"),
 );
