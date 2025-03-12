@@ -1,13 +1,13 @@
 {
-  "name": "Figma Plugin Starter",
+  "name": "Design Analyzer",
   "id": "dev.gracefullight.figma-plugin-starter",
   "api": "1.0.0",
   "editorType": ["figma"],
-  "permissions": [],
+  "permissions": ["currentuser"],
   "main": "dist/code.js",
   "ui": "dist/index.html",
   "networkAccess": {
-    "allowedDomains": ["none"]
+    "allowedDomains": ["https://api.openai.com"]
   },
   "documentAccess": "dynamic-page"
 }
